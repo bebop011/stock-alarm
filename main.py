@@ -7,29 +7,26 @@ CHAT_ID = os.environ.get('CHAT_ID')
 
 def send_message(text):
     if not TOKEN or not CHAT_ID:
-        print("❌ 에러: 텔레그램 정보가 없습니다.")
         return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
 def main():
-    print("🔍 에프앤가이드 데이터 수집 시작...")
     url = 'https://comp.fnguide.com/SVO2/ASP/SVD_Report_Summary.asp'
-    
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'
     }
     
     response = requests.get(url, headers=headers)
-    response.encoding = 'utf-8'
-    soup = BeautifulSoup(response.text, 'html.parser')
+    # 한글 깨짐 방지를 위해 텍스트 원본(content)을 통째로 넘겨 자동 해석하게 함
+    soup = BeautifulSoup(response.content, 'html.parser')
 
     rows = soup.find_all('tr')
-    message = "📈 오늘 아침 목표주가 [상향] 리포트\n\n"
+    message = "📈 오늘 아침 [BUY/매수] 리포트\n\n"
     count = 0
+    debug_info = ""
 
     for row in rows:
-        # 핵심 해결 포인트: '일자' 칸이 td가 아닌 th로 숨어있어서 모두 가져오도록 변경!
         cols = row.find_all(['th', 'td'])
         
         if len(cols) >= 6:
@@ -37,35 +34,31 @@ def main():
             if '/' not in date_text:
                 continue
 
+            # 비서가 읽은 첫 번째 줄의 데이터를 원인 분석(디버그)용으로 저장해 둠
+            if not debug_info:
+                debug_info = f"- 원본날짜: {date_text}\n- 투자의견: {cols[2].text.strip()}\n- 목표가구조: {str(cols[3])[:100]}"
+
             raw_info = cols[1].text.strip().replace('\n', ' ').replace('\r', '')
             report_info = ' '.join(raw_info.split()) 
-            
             opinion = cols[2].text.strip()
-            
-            target_price_td = cols[3]
-            target_price_text = target_price_td.text.strip()
-            target_html = str(target_price_td).lower()
+            target_price = cols[3].text.strip()
 
-            is_upgraded = False
-            
-            # 1. 요약 글에 '상향'이라는 단어가 직접 들어간 경우
-            if '상향' in report_info:
-                is_upgraded = True
-            # 2. 목표주가 칸에 빨간색, 화살표, up 등의 표시가 있는 경우
-            elif '▲' in target_price_text or '↑' in target_price_text:
-                is_upgraded = True
-            elif 'up' in target_html or 'red' in target_html:
-                is_upgraded = True
-
-            if is_upgraded:
-                message += f"▪️ {report_info}\n- 목표가: {target_price_text} (의견: {opinion})\n\n"
+            # 일단 '상향' 기호 찾는 건 포기! 'BUY'나 '매수'면 전부 가져오기
+            if 'BUY' in opinion.upper() or '매수' in opinion:
+                message += f"▪️ {report_info}\n- 목표가: {target_price} (의견: {opinion})\n\n"
                 count += 1
 
+    # 만약 하나도 못 찾았다면, 비서가 본 화면을 그대로 보고하도록 함
     if count == 0:
-        message += "오늘은 목표주가 상향 리포트가 없습니다."
+        message = "⚠️ 조건에 맞는 리포트가 없습니다.\n\n"
+        message += "🛠️ [비서의 눈에 보이는 화면] 🛠️\n"
+        message += f"- 웹사이트에서 찾아낸 표의 줄 수: {len(rows)}줄\n"
+        message += f"- 비서가 읽은 첫 번째 종목 텍스트:\n{debug_info if debug_info else '데이터가 텅 비어있음 (사이트에서 로봇을 완벽히 차단함)'}"
+    else:
+        message += f"💡 (원인 파악을 위해 당분간 상향/하향 상관없이 BUY 리포트를 모두 가져옵니다.)"
 
     if len(message) > 4000:
-        message = message[:3900] + "\n\n... (내용이 너무 길어 생략되었습니다)"
+        message = message[:3900] + "\n... (내용이 너무 길어 생략되었습니다)"
 
     send_message(message)
 
