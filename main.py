@@ -13,54 +13,74 @@ def send_message(text):
 
 def main():
     url = 'https://comp.fnguide.com/SVO2/ASP/SVD_Report_Summary.asp'
+    
+    # 🕵️ 완벽한 사람 위장을 위한 특급 보안 통과 헤더
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://comp.fnguide.com/',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1'
     }
     
-    response = requests.get(url, headers=headers)
-    # 한글 깨짐 방지를 위해 텍스트 원본(content)을 통째로 넘겨 자동 해석하게 함
-    soup = BeautifulSoup(response.content, 'html.parser')
-
-    rows = soup.find_all('tr')
-    message = "📈 오늘 아침 [BUY/매수] 리포트\n\n"
-    count = 0
-    debug_info = ""
-
-    for row in rows:
-        cols = row.find_all(['th', 'td'])
+    try:
+        # 타임아웃을 걸어 에러 방지
+        response = requests.get(url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        if len(cols) >= 6:
-            date_text = cols[0].text.strip()
-            if '/' not in date_text:
-                continue
+        rows = soup.find_all('tr')
+        message = "📈 오늘 아침 목표주가 [상향/매수] 리포트\n\n"
+        count = 0
+        
+        for row in rows:
+            cols = row.find_all(['th', 'td'])
+            
+            if len(cols) >= 6:
+                date_text = cols[0].text.strip()
+                if '/' not in date_text:
+                    continue
 
-            # 비서가 읽은 첫 번째 줄의 데이터를 원인 분석(디버그)용으로 저장해 둠
-            if not debug_info:
-                debug_info = f"- 원본날짜: {date_text}\n- 투자의견: {cols[2].text.strip()}\n- 목표가구조: {str(cols[3])[:100]}"
+                raw_info = cols[1].text.strip().replace('\n', ' ').replace('\r', '')
+                report_info = ' '.join(raw_info.split()) 
+                opinion = cols[2].text.strip()
+                target_price_td = cols[3]
+                target_price_text = target_price_td.text.strip()
+                target_html = str(target_price_td).lower()
 
-            raw_info = cols[1].text.strip().replace('\n', ' ').replace('\r', '')
-            report_info = ' '.join(raw_info.split()) 
-            opinion = cols[2].text.strip()
-            target_price = cols[3].text.strip()
+                is_upgraded = False
+                
+                # 상향, BUY, 매수, 빨간 화살표 등 모든 상승 조건을 꼼꼼히 체크
+                if '상향' in report_info or 'BUY' in opinion.upper() or '매수' in opinion:
+                    is_upgraded = True
+                elif '▲' in target_price_text or '↑' in target_price_text:
+                    is_upgraded = True
+                elif 'up' in target_html or 'red' in target_html or '상향' in target_html:
+                    is_upgraded = True
 
-            # 일단 '상향' 기호 찾는 건 포기! 'BUY'나 '매수'면 전부 가져오기
-            if 'BUY' in opinion.upper() or '매수' in opinion:
-                message += f"▪️ {report_info}\n- 목표가: {target_price} (의견: {opinion})\n\n"
-                count += 1
+                if is_upgraded:
+                    message += f"▪️ {report_info}\n- 목표가: {target_price_text} (의견: {opinion})\n\n"
+                    count += 1
 
-    # 만약 하나도 못 찾았다면, 비서가 본 화면을 그대로 보고하도록 함
-    if count == 0:
-        message = "⚠️ 조건에 맞는 리포트가 없습니다.\n\n"
-        message += "🛠️ [비서의 눈에 보이는 화면] 🛠️\n"
-        message += f"- 웹사이트에서 찾아낸 표의 줄 수: {len(rows)}줄\n"
-        message += f"- 비서가 읽은 첫 번째 종목 텍스트:\n{debug_info if debug_info else '데이터가 텅 비어있음 (사이트에서 로봇을 완벽히 차단함)'}"
-    else:
-        message += f"💡 (원인 파악을 위해 당분간 상향/하향 상관없이 BUY 리포트를 모두 가져옵니다.)"
+        if count == 0:
+            # 또 차단당했는지, 아니면 진짜 리포트가 없는 건지 확인
+            if len(rows) < 3:
+                message = "⚠️ 에프앤가이드 보안 시스템에 접속이 차단되었습니다. (너무 강력한 보안)"
+            else:
+                message += "오늘은 조건에 맞는 리포트가 없습니다."
 
-    if len(message) > 4000:
-        message = message[:3900] + "\n... (내용이 너무 길어 생략되었습니다)"
+        if len(message) > 4000:
+            message = message[:3900] + "\n... 생략"
 
-    send_message(message)
+        send_message(message)
+
+    except Exception as e:
+        send_message(f"❌ 실행 중 에러 발생: {e}")
 
 if __name__ == "__main__":
     main()
