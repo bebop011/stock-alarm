@@ -22,12 +22,14 @@ def main():
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime('%Y.%m.%d') 
 
+    # 가상 브라우저 설정 (봇 탐지 우회 옵션 추가)
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('window-size=1920x1080')
-    chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled') # 봇 차단 방어막 해제
+    chrome_options.add_argument('user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
     
     try:
         service = Service(ChromeDriverManager().install())
@@ -35,13 +37,14 @@ def main():
         url = 'https://wts.ls-sec.co.kr/#0018'
         driver.get(url)
         
-        # 💡 마감 시간 설정 (아침 8시 55분)
         target_end_time = kst_now.replace(hour=8, minute=55, second=0, microsecond=0)
+        # 지금 시간이 8시 55분이 넘었다면, 바로 1번만 돌고 끝내도록 시간 조정
         if kst_now >= target_end_time:
             target_end_time = kst_now + timedelta(minutes=1)
             
         while True:
-            time.sleep(12) # 페이지 로딩 대기 시간 소폭 증가 (12초)
+            # 💡 사이트가 무거우므로 로딩 시간을 15초로 넉넉하게 줍니다.
+            time.sleep(15) 
             
             html = driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
@@ -50,40 +53,41 @@ def main():
             count = 0
             message = f"💡 {kst_now.strftime('%m월 %d일')} LS증권 [주요보고서]\n\n"
             
-            # 💡 수정 포인트: 모든 리스트 항목(li)을 가져와서 그 안에서 날짜와 제목을 동시에 체크합니다.
-            items = soup.find_all(['li', 'div', 'tr']) 
+            # 💡 무적 파싱 로직: HTML 칸막이를 다 부수고, 오직 '순서대로 나열된 글자들'만 뽑아옵니다.
+            strings = list(soup.stripped_strings)
             
-            for item in items:
-                text_content = item.get_text(separator=' ', strip=True)
-                
-                # '오늘 날짜'와 '[주요보고서]'가 한 칸 안에 동시에 들어있는지 확인
-                if today_str in text_content and '[주요보고서]' in text_content:
-                    # 제목 부분만 깔끔하게 추출 (줄바꿈 등 제거)
-                    lines = [line.strip() for line in text_content.splitlines() if '[주요보고서]' in line]
-                    for title in lines:
-                        if title not in seen_reports and len(title) > 10:
+            for i, text in enumerate(strings):
+                # 조건 1: 글자에 '[주요보고서]'가 있고, 본문 내용이 아니라 제목일 정도로 짧을 것 (200자 이내)
+                if '[주요보고서]' in text and len(text) < 200:
+                    title = text.strip()
+                    
+                    # 조건 2: 찾은 제목의 앞뒤로 15개의 글자 덩어리를 긁어모아 '동네(Neighborhood)'를 만듭니다.
+                    start_idx = max(0, i - 15)
+                    end_idx = min(len(strings), i + 15)
+                    neighborhood = " ".join(strings[start_idx:end_idx])
+                    
+                    # 조건 3: 그 동네 안에 '오늘 날짜'가 떨어져 있으면 무조건 오늘 자 리포트가 맞습니다!
+                    if today_str in neighborhood:
+                        if title not in seen_reports:
                             seen_reports.add(title)
                             message += f"▪️ {title}\n\n"
                             count += 1
             
             current_kst = datetime.utcnow() + timedelta(hours=9)
             
-            # 드디어 찾았을 때
             if count > 0:
                 send_message(message)
                 break
                 
-            # 시간 다 됐는데 못 찾았을 때
             elif current_kst >= target_end_time:
-                # 💡 디버깅 힌트 추가: 봇이 마지막으로 읽은 화면에 어떤 날짜들이 있었는지 알려줍니다.
                 all_text = soup.get_text()
                 message += "8시 55분까지 새로고침하며 기다렸으나 오늘 자 주요보고서를 찾지 못했습니다.\n"
+                # 만약 화면에 오늘 날짜 자체가 없었다면, 리포트가 안 올라왔거나 로딩이 덜 된 것입니다.
                 if today_str not in all_text:
-                    message += f"(참고: 현재 사이트 화면에 {today_str} 날짜 자체가 보이지 않습니다.)"
+                    message += f"(디버그: 화면에서 {today_str} 날짜 자체를 찾지 못했습니다.)"
                 send_message(message)
                 break
                 
-            # 아직 시간 남았으면 새로고침 후 재시도
             else:
                 time.sleep(60)
                 driver.refresh()
