@@ -8,6 +8,11 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime, timedelta
 
+# 💡 마우스 클릭을 위해 새로 추가된 부품들
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
 
@@ -16,7 +21,6 @@ def send_message(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
-# 💡 텔레그램으로 현장 사진을 보내는 새로운 기능
 def send_photo(photo_path, caption=""):
     if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
@@ -36,7 +40,6 @@ def main():
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('window-size=1920x1080')
     
-    # 🕵️ 강력한 봇 탐지 우회 옵션들 (사람인 척 위장)
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -46,7 +49,6 @@ def main():
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        # 브라우저에 봇 식별자(webdriver) 제거 스크립트 실행
         driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
             'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
         })
@@ -54,11 +56,22 @@ def main():
         url = 'https://wts.ls-sec.co.kr/#0018'
         driver.get(url)
         
-        # 테스트를 위해 마감 시간을 아주 짧게(1분 뒤) 잡아 바로 결과를 보게 합니다.
-        target_end_time = kst_now + timedelta(minutes=1)
+        target_end_time = kst_now.replace(hour=8, minute=55, second=0, microsecond=0)
+        if kst_now >= target_end_time:
+            target_end_time = kst_now + timedelta(minutes=1)
             
         while True:
-            time.sleep(15) 
+            time.sleep(10) # 1. 사이트 기본 로딩 대기
+            
+            # 💡 [핵심 추가] '보고서짱' 탭을 찾아서 클릭합니다!
+            try:
+                tab_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '보고서짱')]"))
+                )
+                driver.execute_script("arguments[0].click();", tab_element)
+                time.sleep(5) # 2. 탭 누르고 데이터가 뜰 때까지 5초 추가 대기
+            except Exception as e:
+                pass # 클릭 에러가 나도 일단 진행
             
             html = driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
@@ -89,13 +102,10 @@ def main():
                 break
                 
             elif current_kst >= target_end_time:
-                # 🚨 시간 초과 시, 현재 봇이 보고 있는 화면을 사진으로 찍습니다!
                 screenshot_path = "debug_screenshot.png"
                 driver.save_screenshot(screenshot_path)
                 
-                message += "오늘 자 주요보고서를 찾지 못했습니다.\n\n📸 봇이 마지막으로 확인한 화면 사진을 첨부합니다. (보안 차단 여부 확인용)"
-                
-                # 메시지와 함께 사진을 텔레그램으로 발송!
+                message += "오늘 자 주요보고서를 찾지 못했습니다.\n\n📸 봇이 마지막으로 확인한 화면 사진을 첨부합니다."
                 send_photo(screenshot_path, message)
                 break
                 
