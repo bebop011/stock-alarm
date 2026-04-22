@@ -12,38 +12,52 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
 
 def send_message(text):
-    if not TOKEN or not CHAT_ID:
-        return
+    if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
+# 💡 텔레그램으로 현장 사진을 보내는 새로운 기능
+def send_photo(photo_path, caption=""):
+    if not TOKEN or not CHAT_ID: return
+    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+    try:
+        with open(photo_path, 'rb') as photo:
+            requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": photo})
+    except Exception as e:
+        send_message(f"📷 사진 전송 에러: {e}")
+
 def main():
-    # 1. 한국 시간(KST) 오늘 날짜 구하기 (예: 2026.04.22)
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime('%Y.%m.%d') 
 
-    # 가상 브라우저 설정 (봇 탐지 우회 옵션 추가)
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('window-size=1920x1080')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled') # 봇 차단 방어막 해제
-    chrome_options.add_argument('user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
+    
+    # 🕵️ 강력한 봇 탐지 우회 옵션들 (사람인 척 위장)
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
     
     try:
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # 브라우저에 봇 식별자(webdriver) 제거 스크립트 실행
+        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
+        })
+        
         url = 'https://wts.ls-sec.co.kr/#0018'
         driver.get(url)
         
-        target_end_time = kst_now.replace(hour=8, minute=55, second=0, microsecond=0)
-        # 지금 시간이 8시 55분이 넘었다면, 바로 1번만 돌고 끝내도록 시간 조정
-        if kst_now >= target_end_time:
-            target_end_time = kst_now + timedelta(minutes=1)
+        # 테스트를 위해 마감 시간을 아주 짧게(1분 뒤) 잡아 바로 결과를 보게 합니다.
+        target_end_time = kst_now + timedelta(minutes=1)
             
         while True:
-            # 💡 사이트가 무거우므로 로딩 시간을 15초로 넉넉하게 줍니다.
             time.sleep(15) 
             
             html = driver.page_source
@@ -53,20 +67,15 @@ def main():
             count = 0
             message = f"💡 {kst_now.strftime('%m월 %d일')} LS증권 [주요보고서]\n\n"
             
-            # 💡 무적 파싱 로직: HTML 칸막이를 다 부수고, 오직 '순서대로 나열된 글자들'만 뽑아옵니다.
             strings = list(soup.stripped_strings)
             
             for i, text in enumerate(strings):
-                # 조건 1: 글자에 '[주요보고서]'가 있고, 본문 내용이 아니라 제목일 정도로 짧을 것 (200자 이내)
                 if '[주요보고서]' in text and len(text) < 200:
                     title = text.strip()
-                    
-                    # 조건 2: 찾은 제목의 앞뒤로 15개의 글자 덩어리를 긁어모아 '동네(Neighborhood)'를 만듭니다.
                     start_idx = max(0, i - 15)
                     end_idx = min(len(strings), i + 15)
                     neighborhood = " ".join(strings[start_idx:end_idx])
                     
-                    # 조건 3: 그 동네 안에 '오늘 날짜'가 떨어져 있으면 무조건 오늘 자 리포트가 맞습니다!
                     if today_str in neighborhood:
                         if title not in seen_reports:
                             seen_reports.add(title)
@@ -80,16 +89,18 @@ def main():
                 break
                 
             elif current_kst >= target_end_time:
-                all_text = soup.get_text()
-                message += "8시 55분까지 새로고침하며 기다렸으나 오늘 자 주요보고서를 찾지 못했습니다.\n"
-                # 만약 화면에 오늘 날짜 자체가 없었다면, 리포트가 안 올라왔거나 로딩이 덜 된 것입니다.
-                if today_str not in all_text:
-                    message += f"(디버그: 화면에서 {today_str} 날짜 자체를 찾지 못했습니다.)"
-                send_message(message)
+                # 🚨 시간 초과 시, 현재 봇이 보고 있는 화면을 사진으로 찍습니다!
+                screenshot_path = "debug_screenshot.png"
+                driver.save_screenshot(screenshot_path)
+                
+                message += "오늘 자 주요보고서를 찾지 못했습니다.\n\n📸 봇이 마지막으로 확인한 화면 사진을 첨부합니다. (보안 차단 여부 확인용)"
+                
+                # 메시지와 함께 사진을 텔레그램으로 발송!
+                send_photo(screenshot_path, message)
                 break
                 
             else:
-                time.sleep(60)
+                time.sleep(30)
                 driver.refresh()
                 
         driver.quit()
