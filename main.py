@@ -6,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from datetime import datetime, timedelta
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
@@ -17,6 +18,10 @@ def send_message(text):
     requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
 def main():
+    # 💡 한국 시간(KST) 오늘 날짜 구하기 (형식: YY/MM/DD)
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    today_str = kst_now.strftime('%y/%m/%d')
+
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
@@ -37,23 +42,21 @@ def main():
         driver.quit()
         
         rows = soup.find_all('tr')
-        message = "📈 오늘 아침 목표주가 [상향] 리포트\n\n"
+        message = f"📈 {kst_now.strftime('%m월 %d일')} 목표주가 [상향] 리포트\n\n"
         count = 0
-        
-        # 💡 중복 체크를 위한 장부(Set) 만들기
         seen_stocks = set()
         
         for row in rows:
             cols = row.find_all(['th', 'td'])
             if len(cols) >= 6:
                 date_text = cols[0].text.strip()
-                if '/' not in date_text:
+                
+                # 🚨 핵심 필터: 표의 날짜가 '오늘 날짜'가 아니면 무조건 건너뜁니다!
+                if date_text != today_str:
                     continue
 
                 raw_info = cols[1].text.strip().replace('\n', ' ').replace('\r', '')
                 report_info = ' '.join(raw_info.split()) 
-                
-                # 종목명만 따로 추출 (예: "현대건설 A000720")
                 stock_name = report_info.split('-')[0].strip()
                 
                 opinion = cols[2].text.strip()
@@ -63,26 +66,20 @@ def main():
 
                 is_upgraded = False
                 
-                # 상승 화살표 기호나 이미지가 있는지 확인
                 if '▲' in target_price_text or '↑' in target_price_text:
                     is_upgraded = True
                 elif 'up' in target_html or 'red' in target_html:
                     is_upgraded = True
 
                 if is_upgraded:
-                    # 💡 이미 보낸 종목인지 확인하는 필터
                     if stock_name in seen_stocks:
                         continue
-                    
-                    seen_stocks.add(stock_name) # 처음 보는 종목이라면 장부에 기록
+                    seen_stocks.add(stock_name)
                     message += f"▪️ {report_info}\n- 목표가: {target_price_text} (의견: {opinion})\n\n"
                     count += 1
         
         if count == 0:
-            if len(rows) < 3:
-                message = "⚠️ 데이터 수집 실패 (사이트 구조 변경 확인 필요)"
-            else:
-                message += "오늘은 목표주가가 상향된 리포트가 없습니다."
+            message += "아직 오늘 자(상향) 리포트가 올라오지 않았거나 조건에 맞는 종목이 없습니다."
                 
         if len(message) > 4000:
             message = message[:3900] + "\n... (생략)"
