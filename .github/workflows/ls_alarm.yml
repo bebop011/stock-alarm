@@ -3,7 +3,7 @@ name: LS Securities Alarm
 on:
   schedule:
     # KST 아침 8시 50분 (UTC 기준 23시 50분)
-    - cron: '50 23 * * *'
+    - cron: '30,40,50 23 * * *'
   workflow_dispatch:
 
 jobs:
