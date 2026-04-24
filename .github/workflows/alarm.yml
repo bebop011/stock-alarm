@@ -2,8 +2,7 @@ name: Daily Stock Alarm
 
 on:
   schedule:
-    # KST 아침 8시 10분 (서버 지연을 고려해 미리 실행)
-    - cron: '00,10,20,30,40 23 * * *'
+    - cron: '10,20,30,40,50 23 * * *'
   workflow_dispatch:
 
 jobs:
