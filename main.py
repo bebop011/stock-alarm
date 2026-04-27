@@ -20,15 +20,21 @@ def send_message(text):
         print("⚠️ 텔레그램 토큰이 없습니다.")
         return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    res = requests.post(url, data={"chat_id": CHAT_ID, "text": text})
-    print(f"💬 메시지 전송 결과: {res.status_code}")
+    
+    # 💡 [핵심 보완] 텔레그램 글자 수 제한(4096자)을 피하기 위해 3000자씩 잘라서 전송
+    max_length = 3000
+    for i in range(0, len(text), max_length):
+        chunk = text[i:i+max_length]
+        res = requests.post(url, data={"chat_id": CHAT_ID, "text": chunk})
+        print(f"💬 메시지 전송 결과: {res.status_code}")
+        time.sleep(1) # 연속 전송 시 텔레그램 서버의 차단을 막기 위해 1초 대기
 
 def send_photo(photo_path, caption=""):
     if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
     try:
         with open(photo_path, 'rb') as photo:
-            res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": photo})
+            res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption[:1000]}, files={"photo": photo})
             print(f"📷 사진 전송 결과: {res.status_code}")
     except Exception as e:
         print(f"❌ 사진 전송 에러 발생: {e}")
